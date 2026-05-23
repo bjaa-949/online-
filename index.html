@@ -116,14 +116,13 @@
                 starsBackground.push({
                     x: Math.random() * window.innerWidth,
                     y: Math.random() * window.innerHeight,
-                    depth: Math.random() * 0.7 + 0.1, // Factor de profundidad de movimiento
+                    depth: Math.random() * 0.7 + 0.1, 
                     size: Math.random() * 2,
                     brightness: Math.random() * 0.5 + 0.5
                 });
             }
         }
 
-        // Synthesizer de sonido procedimental Web Audio API
         let audioCtx = null;
         function playAudioFX(type) {
             try {
@@ -201,19 +200,16 @@
                         let force = (keys['w'] || keys['ArrowUp']) ? 0.3 : -0.15;
                         this.vx += Math.cos(this.angle) * force;
                         this.vy += Math.sin(this.angle) * force;
-                        // Emisión elegante de estela propulsora
                         if(Math.random() < 0.6) {
                             FX.spawn(this.x - Math.cos(this.angle)*12, this.y - Math.sin(this.angle)*12, '#ff9f43', 2, 1.5, 1);
                         }
                     }
-                    this.vx *= 0.96; this.vy *= 0.96; // Inercia amortiguada
+                    this.vx *= 0.96; this.vy *= 0.96; 
                     this.x += this.vx * (dt * 60); this.y += this.vy * (dt * 60);
                     
-                    // Bordes toroidales
                     if (this.x < 0) this.x += WORLD_SIZE; if (this.x > WORLD_SIZE) this.x -= WORLD_SIZE;
                     if (this.y < 0) this.y += WORLD_SIZE; if (this.y > WORLD_SIZE) this.y -= WORLD_SIZE;
                 } else if (this.buffer.length >= 2) {
-                    // Interpolación lineal amortiguada para juego fluido en red
                     let rTime = Date.now() - 90;
                     let i = 0;
                     for (; i < this.buffer.length - 1; i++) {
@@ -233,7 +229,6 @@
                 let sx = this.x - cx, sy = this.y - cy;
                 ctx.save(); ctx.translate(sx, sy); ctx.rotate(this.angle);
                 
-                // Glow Neon de la nave
                 ctx.shadowBlur = 10; ctx.shadowColor = this.color;
                 ctx.strokeStyle = this.color; ctx.fillStyle = "rgba(10,10,30,0.8)"; ctx.lineWidth = 3;
                 
@@ -242,7 +237,6 @@
                 ctx.closePath(); ctx.fill(); ctx.stroke();
                 ctx.restore();
                 
-                // Textos informativos flotantes
                 ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = "11px 'Courier New'"; ctx.textAlign = "center";
                 ctx.fillText(this.name.toUpperCase(), sx, sy - 24);
             }
@@ -251,14 +245,15 @@
         class Bullet {
             constructor(id, ownerId, x, y, angle) {
                 this.id = id; this.ownerId = ownerId; this.x = x; this.y = y;
-                this.vx = Math.cos(angle) * 14; this.vy = Math.sin(angle) * 14;
-                this.color = '#fff200'; this.life = 55;
+                // Alcance mejorado: velocidad y tiempo de vida incrementados significativamente
+                this.vx = Math.cos(angle) * 16; this.vy = Math.sin(angle) * 16;
+                this.color = '#fff200'; this.life = 110; 
             }
             update(dt) { this.x += this.vx * (dt*60); this.y += this.vy * (dt*60); this.life -= (dt*60); }
         }
 
         // ==========================================
-        // MOTOR DE COMUNICACIÓN WEBTRC REAL (PEERJS)
+        // MOTOR DE COMUNICACIÓN WEBTRC MEJORADO
         // ==========================================
         class NetworkManager {
             constructor() { this.peer = null; this.connections = {}; this.isHost = false; this.roomCode = ""; }
@@ -275,7 +270,8 @@
                 this.peer.on('open', () => {
                     let c = this.peer.connect(code, { reliable: false });
                     this.bindEvents(c);
-                    onReady();
+                    // Avisamos al motor local que la conexión base está lista
+                    c.on('open', () => { onReady(); });
                 });
             }
             bindEvents(c) {
@@ -288,10 +284,18 @@
 
             onDataReceived(data, sender) {
                 if (this.isHost) {
+                    // El host procesa la entrada explícita de un nuevo jugador
+                    if (data.type === 'join') {
+                        game.players[sender] = new Player(sender, data.name, Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE, data.color, false);
+                        this.forceSnapshot(); // Forzamos actualización instantánea de red
+                    }
                     if (data.type === 'sync') {
                         let p = game.players[sender];
-                        if (!p) game.players[sender] = new Player(sender, data.name, Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE, data.color, false);
-                        else p.buffer.push({ t: Date.now(), x: data.x, y: data.y, angle: data.angle });
+                        if (!p) {
+                            game.players[sender] = new Player(sender, data.name, data.x, data.y, data.color, false);
+                        } else {
+                            p.buffer.push({ t: Date.now(), x: data.x, y: data.y, angle: data.angle });
+                        }
                     }
                     if (data.type === 'fire') {
                         game.bullets.push(new Bullet(Math.random().toString(), sender, data.x, data.y, data.angle));
@@ -305,11 +309,27 @@
                             if (!p) game.players[pData.id] = new Player(pData.id, pData.name, pData.x, pData.y, pData.color, false);
                             else { p.buffer.push({ t: Date.now(), x: pData.x, y: pData.y, angle: pData.angle }); p.score = pData.score; }
                         });
+                        
+                        // Limpiar naves desconectadas que el host ya no reporta
+                        const hostIds = data.players.map(p => p.id);
+                        Object.keys(game.players).forEach(id => {
+                            if(id !== game.localId && !hostIds.includes(id)) delete game.players[id];
+                        });
+
                         game.bullets = data.bullets.map(b => Object.assign(new Bullet(), b));
                         game.gems = data.gems;
                     }
                     if (data.type === 'fxExplosion') { playAudioFX('explosion'); game.shakeIntensity = 15; FX.spawn(data.x, data.y, '#ff4757', 4, 4, 30); }
                 }
+            }
+
+            forceSnapshot() {
+                this.broadcast({
+                    type: 'snapshot',
+                    players: Object.values(game.players).map(p => ({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, score: p.score, color: p.color })),
+                    bullets: game.bullets,
+                    gems: game.gems
+                });
             }
         }
         const net = new NetworkManager();
@@ -330,7 +350,6 @@
                 this.localPlayer = new Player(this.localId, name, Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE, color, true);
                 this.players[this.localId] = this.localPlayer;
 
-                // Registro Eventos Periféricos
                 window.addEventListener('keydown', (e) => this.keys[e.key] = true);
                 window.addEventListener('keyup', (e) => this.keys[e.key] = false);
                 window.addEventListener('mousemove', (e) => {
@@ -352,9 +371,11 @@
 
                 if (net.isHost) {
                     for(let i=0; i<60; i++) this.gems.push({ x: Math.random()*WORLD_SIZE, y: Math.random()*WORLD_SIZE, seed: Math.random()*10 });
+                } else {
+                    // Protocolo Handshake: El cliente se presenta formalmente al Host para romper el aislamiento inicial
+                    net.sendToHost({ type: 'join', name: this.localPlayer.name, color: this.localPlayer.color });
                 }
 
-                // Ajustes UI finales
                 document.getElementById('lobbyUI').style.display = 'none';
                 document.getElementById('hud').style.display = 'block';
                 document.getElementById('leaderboard').style.display = 'block';
@@ -378,10 +399,9 @@
                 Object.values(this.players).forEach(p => p.update(dt, this.keys, this.mouseAngle));
                 FX.update(dt);
 
-                if (this.shakeIntensity > 0) this.shakeIntensity *= 0.9; // Atenuar impacto cámara
+                if (this.shakeIntensity > 0) this.shakeIntensity *= 0.9; 
 
                 if (net.isHost) {
-                    // Servidor calcula movimientos e impactos de proyectiles
                     for (let i = this.bullets.length - 1; i >= 0; i--) {
                         let b = this.bullets[i]; b.update(dt);
                         let destroyed = false;
@@ -389,11 +409,10 @@
                         Object.values(this.players).forEach(p => {
                             if (b.ownerId !== p.id) {
                                 let dx = b.x - p.x, dy = b.y - p.y;
-                                if (Math.sqrt(dx*dx + dy*dy) < p.radius + b.radius) {
+                                if (Math.sqrt(dx*dx + dy*dy) < p.radius + 3) {
                                     p.score = Math.max(0, p.score - 4);
                                     if(this.players[b.ownerId]) this.players[b.ownerId].score += 10;
                                     
-                                    // Respawn inmediato forzado por autoridad del Host
                                     p.x = Math.random()*WORLD_SIZE; p.y = Math.random()*WORLD_SIZE; p.vx = 0; p.vy = 0;
                                     
                                     playAudioFX('explosion');
@@ -408,7 +427,6 @@
                         if (destroyed || b.life <= 0) this.bullets.splice(i, 1);
                     }
 
-                    // Absorción de gemas estelares
                     for (let i = this.gems.length - 1; i >= 0; i--) {
                         let g = this.gems[i];
                         Object.values(this.players).forEach(p => {
@@ -421,19 +439,12 @@
                         });
                     }
 
-                    // Retransmisión de red uniforme (Snapshot de red)
                     this.netTimer += dt * 1000;
                     if (this.netTimer >= 45) {
-                        net.broadcast({
-                            type: 'snapshot',
-                            players: Object.values(this.players).map(p => ({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, score: p.score, color: p.color })),
-                            bullets: this.bullets,
-                            gems: this.gems
-                        });
+                        net.forceSnapshot();
                         this.netTimer = 0;
                     }
                 } else {
-                    // Cliente sube su posición estimada al host
                     this.netTimer += dt * 1000;
                     if (this.netTimer >= 45) {
                         net.sendToHost({ type: 'sync', name: this.localPlayer.name, color: this.localPlayer.color, x: this.localPlayer.x, y: this.localPlayer.y, angle: this.localPlayer.angle });
@@ -461,7 +472,6 @@
                 let cx = this.localPlayer.x - canvas.width / 2;
                 let cy = this.localPlayer.y - canvas.height / 2;
 
-                // --- EFECTO JUICE: SHAKE CAMERA ---
                 ctx.save();
                 if (this.shakeIntensity > 0.2) {
                     let dx = (Math.random() - 0.5) * this.shakeIntensity;
@@ -469,7 +479,6 @@
                     ctx.translate(dx, dy);
                 }
 
-                // Render Background Estrellas con Parallax Matemático
                 ctx.fillStyle = '#fff';
                 starsBackground.forEach(s => {
                     let sx = (s.x - cx * s.depth) % canvas.width;
@@ -480,23 +489,20 @@
                 });
                 ctx.globalAlpha = 1.0;
 
-                // Dibujar Líneas Perimetrales de la Arena Neón
                 ctx.strokeStyle = '#5758bb'; ctx.lineWidth = 2; ctx.shadowBlur = 15; ctx.shadowColor = '#5758bb';
                 ctx.strokeRect(-cx, -cy, WORLD_SIZE, WORLD_SIZE);
                 ctx.shadowBlur = 0;
 
-                // Dibujar Cristales / Gemas de Energía
                 this.gems.forEach(g => {
                     ctx.save();
                     ctx.shadowBlur = 10; ctx.shadowColor = '#00d2d3'; ctx.fillStyle = '#00d2d3';
                     ctx.translate(g.x - cx, g.y - cy);
-                    ctx.rotate(g.seed); // Rotación fija procedimental
+                    ctx.rotate(g.seed); 
                     ctx.fillRect(-4, -4, 8, 8);
                     ctx.restore();
                 });
                 ctx.shadowBlur = 0;
 
-                // Dibujar Proyectiles Activos
                 ctx.save(); ctx.globalCompositeOperation = 'screen';
                 this.bullets.forEach(b => {
                     ctx.fillStyle = b.color; ctx.shadowBlur = 8; ctx.shadowColor = b.color;
@@ -504,17 +510,15 @@
                 });
                 ctx.restore(); ctx.shadowBlur = 0;
 
-                // Dibujar Jugadores Activos y Partículas
                 Object.values(this.players).forEach(p => p.draw(ctx, cx, cy));
                 FX.draw(ctx, cx, cy);
 
-                ctx.restore(); // Termina Screen Shake
+                ctx.restore(); 
             }
         }
 
         const game = new CoreEngine();
 
-        // Control de Selección Estética de Color
         let activeColor = '#00d2d3';
         document.querySelectorAll('.color-opt').forEach(opt => {
             opt.addEventListener('click', () => {
