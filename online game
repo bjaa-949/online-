@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AstroArena.io - Edición Neon Premium</title>
+    <!-- PeerJS vía CDN para interconexión WebRTC P2P Directa -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #03030c; font-family: 'Courier New', Courier, monospace; color: #fff; }
+        #gameCanvas { display: block; width: 100vw; height: 100vh; }
+        
+        /* UI de Menú Futurista */
+        #lobbyUI {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(8, 8, 24, 0.9); padding: 35px; border-radius: 16px;
+            border: 2px solid #5758bb; box-shadow: 0 0 30px rgba(87, 88, 187, 0.4), inset 0 0 15px rgba(87, 88, 187, 0.2);
+            text-align: center; width: 400px; z-index: 10; backdrop-filter: blur(12px);
+        }
+        h1 { font-size: 32px; margin-bottom: 20px; color: #00d2d3; text-shadow: 0 0 15px rgba(0, 210, 211, 0.6); font-weight: bold; letter-spacing: 2px; }
+        label { display: block; text-align: left; margin-bottom: 5px; font-size: 12px; color: #888; text-transform: uppercase; }
+        input[type="text"] {
+            width: 100%; padding: 12px; background: #0c0c24; border: 1px solid #5758bb;
+            color: #00d2d3; border-radius: 8px; margin-bottom: 15px; text-align: center; font-size: 16px;
+            font-family: inherit; outline: none; transition: 0.3s;
+        }
+        input[type="text"]:focus { border-color: #00d2d3; box-shadow: 0 0 10px rgba(0, 210, 211, 0.3); }
+        .color-picker { display: flex; justify-content: space-between; margin: 5px 0 20px 0; }
+        .color-opt { width: 42px; height: 42px; border-radius: 8px; cursor: pointer; border: 2px solid rgba(0,0,0,0.4); transition: 0.2s; position: relative; }
+        .color-opt:hover { transform: translateY(-3px); }
+        .color-opt.selected { border-color: #fff; box-shadow: 0 0 15px currentColor; transform: scale(1.05); }
+        .btn {
+            width: 100%; padding: 14px; border: none; color: white; font-weight: bold; font-size: 15px;
+            border-radius: 8px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; font-family: inherit; transition: 0.2s;
+        }
+        .btn-host { background: linear-gradient(135deg, #ff3f34, #ff5e57); box-shadow: 0 4px 15px rgba(255, 63, 52, 0.4); margin-bottom: 15px; }
+        .btn-host:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-join { background: linear-gradient(135deg, #05c46b, #0be881); box-shadow: 0 4px 15px rgba(5, 196, 107, 0.4); }
+        .btn-join:hover { opacity: 0.9; transform: translateY(-1px); }
+        .divider { height: 1px; background: rgba(87, 88, 187, 0.3); margin: 20px 0; position: relative; }
+        .divider::before { content: "Ó"; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #080818; padding: 0 10px; color: #5758bb; font-size: 12px; }
+        
+        /* HUD & Paneles dinámicos */
+        #hud { position: absolute; top: 25px; left: 25px; z-index: 5; font-size: 22px; font-weight: bold; color: #0be881; text-shadow: 0 0 10px rgba(11, 232, 129, 0.4); display: none; pointer-events: none; }
+        #leaderboard {
+            position: absolute; top: 25px; right: 25px; background: rgba(6, 6, 18, 0.85);
+            padding: 20px; border-radius: 10px; min-width: 220px; display: none;
+            border: 1px solid #5758bb; box-shadow: 0 4px 20px rgba(0,0,0,0.5); pointer-events: none;
+        }
+        .lb-title { color: #ffdd59; font-weight: bold; margin-bottom: 10px; border-bottom: 1px dashed rgba(255,221,89,0.3); padding-bottom: 5px; font-size: 14px; letter-spacing: 1px; }
+        .lb-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+        .room-panel {
+            position: absolute; bottom: 25px; left: 25px; background: rgba(6, 6, 18, 0.85);
+            padding: 15px; border-radius: 10px; border: 1px solid #5758bb; display: none; font-size: 13px;
+        }
+        .copy-badge { background: #5758bb; padding: 3px 6px; border-radius: 4px; font-size: 11px; cursor: pointer; margin-left: 8px; font-weight: bold; }
+        .copy-badge:hover { background: #00d2d3; }
+    </style>
+</head>
+<body>
+
+    <div id="lobbyUI">
+        <h1>ASTROARENA.IO</h1>
+        
+        <label>Nombre del Piloto</label>
+        <input type="text" id="username" value="StarFighter" maxlength="12">
+        
+        <label>Firma Lumínica (Color)</label>
+        <div class="color-picker">
+            <div class="color-opt selected" style="background: #00d2d3; color: #00d2d3;" data-color="#00d2d3"></div>
+            <div class="color-opt" style="background: #0be881; color: #0be881;" data-color="#0be881"></div>
+            <div class="color-opt" style="background: #ff3f34; color: #ff3f34;" data-color="#ff3f34"></div>
+            <div class="color-opt" style="background: #ffdd59; color: #ffdd59;" data-color="#ffdd59"></div>
+            <div class="color-opt" style="background: #ef57b2; color: #ef57b2;" data-color="#ef57b2"></div>
+        </div>
+
+        <button id="btnHost" class="btn btn-host">Inaugurar Servidor / Host</button>
+        
+        <div class="divider"></div>
+        
+        <label>Código de Acceso del Host</label>
+        <input type="text" id="joinId" placeholder="Introduce ID de tu amigo...">
+        <button id="btnJoin" class="btn btn-join">Acoplarse a Transmisión</button>
+        
+        <div id="statusMsg" style="margin-top:15px; font-size:12px; color:#888; text-transform: uppercase;">Estacionado en hangar...</div>
+    </div>
+
+    <div id="hud">SISTEMA ONLINE // SCORE: <span id="scoreVal">0</span></div>
+    
+    <div id="leaderboard">
+        <div class="lb-title">📡 RADAR DE PUNTUACIONES</div>
+        <div id="lbContent"></div>
+    </div>
+
+    <div id="roomPanel" class="room-panel">
+        <span id="roomString">SALA: -</span>
+        <span class="copy-badge" id="btnCopy">COPIAR ID</span>
+        <div id="roleString" style="color: #888; margin-top: 5px; font-size: 11px;"></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // ==========================================
+        // CONFIGURACIÓN DE ESCENARIO Y PARALLAX
+        // ==========================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const WORLD_SIZE = 3000;
+        
+        let starsBackground = [];
+        function generateStars() {
+            starsBackground = [];
+            for (let i = 0; i < 250; i++) {
+                starsBackground.push({
+                    x: Math.random() * window.innerWidth,
+                    y: Math.random() * window.innerHeight,
+                    depth: Math.random() * 0.7 + 0.1, // Factor de profundidad de movimiento
+                    size: Math.random() * 2,
+                    brightness: Math.random() * 0.5 + 0.5
+                });
+            }
+        }
+
+        // Synthesizer de sonido procedimental Web Audio API
+        let audioCtx = null;
+        function playAudioFX(type) {
+            try {
+                if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                
+                if(type === 'laser') {
+                    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(500, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.12);
+                    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.12);
+                } else if(type === 'explosion') {
+                    osc.type = 'triangle'; osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+                    osc.frequency.linearRampToValueAtTime(20, audioCtx.currentTime + 0.4);
+                    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+                }
+            } catch(e) {}
+        }
+
+        // ==========================================
+        // GESTIÓN DE EFECTOS ESPECIALES (JUICE)
+        // ==========================================
+        class ParticleSystem {
+            constructor() { this.pool = []; }
+            spawn(x, y, color, size, speedFactor, count = 1) {
+                for(let i=0; i<count; i++) {
+                    let a = Math.random() * Math.PI * 2;
+                    let s = Math.random() * speedFactor + 1;
+                    this.pool.push({
+                        x: x, y: y,
+                        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+                        radius: Math.random() * size + 1,
+                        alpha: 1, decay: Math.random() * 0.03 + 0.015,
+                        color: color
+                    });
+                }
+            }
+            update(dt) {
+                for(let i = this.pool.length - 1; i >= 0; i--) {
+                    let p = this.pool[i];
+                    p.x += p.vx * (dt * 60); p.y += p.vy * (dt * 60);
+                    p.alpha -= p.decay * (dt * 60);
+                    if(p.alpha <= 0) this.pool.splice(i, 1);
+                }
+            }
+            draw(ctx, cx, cy) {
+                ctx.save();
+                for(let p of this.pool) {
+                    ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color;
+                    ctx.beginPath(); ctx.arc(p.x - cx, p.y - cy, p.radius, 0, Math.PI*2); ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+        const FX = new ParticleSystem();
+
+        // ==========================================
+        // ENTIDADES PRINCIPALES
+        // ==========================================
+        class Player {
+            constructor(id, name, x, y, color, isLocal = false) {
+                this.id = id; this.name = name; this.x = x; this.y = y;
+                this.vx = 0; this.vy = 0; this.angle = 0; this.color = color;
+                this.radius = 16; this.score = 0; this.isLocal = isLocal;
+                this.buffer = [];
+            }
+            update(dt, keys, targetAngle) {
+                if (this.isLocal) {
+                    this.angle = targetAngle;
+                    if (keys['w'] || keys['ArrowUp'] || keys['s'] || keys['ArrowDown']) {
+                        let force = (keys['w'] || keys['ArrowUp']) ? 0.3 : -0.15;
+                        this.vx += Math.cos(this.angle) * force;
+                        this.vy += Math.sin(this.angle) * force;
+                        // Emisión elegante de estela propulsora
+                        if(Math.random() < 0.6) {
+                            FX.spawn(this.x - Math.cos(this.angle)*12, this.y - Math.sin(this.angle)*12, '#ff9f43', 2, 1.5, 1);
+                        }
+                    }
+                    this.vx *= 0.96; this.vy *= 0.96; // Inercia amortiguada
+                    this.x += this.vx * (dt * 60); this.y += this.vy * (dt * 60);
+                    
+                    // Bordes toroidales
+                    if (this.x < 0) this.x += WORLD_SIZE; if (this.x > WORLD_SIZE) this.x -= WORLD_SIZE;
+                    if (this.y < 0) this.y += WORLD_SIZE; if (this.y > WORLD_SIZE) this.y -= WORLD_SIZE;
+                } else if (this.buffer.length >= 2) {
+                    // Interpolación lineal amortiguada para juego fluido en red
+                    let rTime = Date.now() - 90;
+                    let i = 0;
+                    for (; i < this.buffer.length - 1; i++) {
+                        if (this.buffer[i].t <= rTime && this.buffer[i+1].t >= rTime) break;
+                    }
+                    if (i < this.buffer.length - 1) {
+                        let p1 = this.buffer[i], p2 = this.buffer[i+1];
+                        let alpha = (rTime - p1.t) / (p2.t - p1.t);
+                        this.x = p1.x + (p2.x - p1.x) * alpha;
+                        this.y = p1.y + (p2.y - p1.y) * alpha;
+                        this.angle = p1.angle + (p2.angle - p1.angle) * alpha;
+                    }
+                    if(this.buffer.length > 20) this.buffer.shift();
+                }
+            }
+            draw(ctx, cx, cy) {
+                let sx = this.x - cx, sy = this.y - cy;
+                ctx.save(); ctx.translate(sx, sy); ctx.rotate(this.angle);
+                
+                // Glow Neon de la nave
+                ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+                ctx.strokeStyle = this.color; ctx.fillStyle = "rgba(10,10,30,0.8)"; ctx.lineWidth = 3;
+                
+                ctx.beginPath();
+                ctx.moveTo(18, 0); ctx.lineTo(-14, -12); ctx.lineTo(-7, 0); ctx.lineTo(-14, 12);
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+                ctx.restore();
+                
+                // Textos informativos flotantes
+                ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.font = "11px 'Courier New'"; ctx.textAlign = "center";
+                ctx.fillText(this.name.toUpperCase(), sx, sy - 24);
+            }
+        }
+
+        class Bullet {
+            constructor(id, ownerId, x, y, angle) {
+                this.id = id; this.ownerId = ownerId; this.x = x; this.y = y;
+                this.vx = Math.cos(angle) * 14; this.vy = Math.sin(angle) * 14;
+                this.color = '#fff200'; this.life = 55;
+            }
+            update(dt) { this.x += this.vx * (dt*60); this.y += this.vy * (dt*60); this.life -= (dt*60); }
+        }
+
+        // ==========================================
+        // MOTOR DE COMUNICACIÓN WEBTRC REAL (PEERJS)
+        // ==========================================
+        class NetworkManager {
+            constructor() { this.peer = null; this.connections = {}; this.isHost = false; this.roomCode = ""; }
+            
+            initHost(onReady) {
+                this.isHost = true;
+                this.peer = new Peer(null, { debug: 1 });
+                this.peer.on('open', (id) => { this.roomCode = id; onReady(id); });
+                this.peer.on('connection', (c) => this.bindEvents(c));
+            }
+            initClient(code, onReady) {
+                this.isHost = false; this.roomCode = code;
+                this.peer = new Peer(null, { debug: 1 });
+                this.peer.on('open', () => {
+                    let c = this.peer.connect(code, { reliable: false });
+                    this.bindEvents(c);
+                    onReady();
+                });
+            }
+            bindEvents(c) {
+                this.connections[c.peer] = c;
+                c.on('data', (data) => this.onDataReceived(data, c.peer));
+                c.on('close', () => { delete game.players[c.peer]; delete this.connections[c.peer]; });
+            }
+            broadcast(msg) { Object.values(this.connections).forEach(c => c.send(msg)); }
+            sendToHost(msg) { Object.values(this.connections)[0]?.send(msg); }
+
+            onDataReceived(data, sender) {
+                if (this.isHost) {
+                    if (data.type === 'sync') {
+                        let p = game.players[sender];
+                        if (!p) game.players[sender] = new Player(sender, data.name, Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE, data.color, false);
+                        else p.buffer.push({ t: Date.now(), x: data.x, y: data.y, angle: data.angle });
+                    }
+                    if (data.type === 'fire') {
+                        game.bullets.push(new Bullet(Math.random().toString(), sender, data.x, data.y, data.angle));
+                        playAudioFX('laser');
+                    }
+                } else {
+                    if (data.type === 'snapshot') {
+                        data.players.forEach(pData => {
+                            if (pData.id === game.localId) { game.localPlayer.score = pData.score; return; }
+                            let p = game.players[pData.id];
+                            if (!p) game.players[pData.id] = new Player(pData.id, pData.name, pData.x, pData.y, pData.color, false);
+                            else { p.buffer.push({ t: Date.now(), x: pData.x, y: pData.y, angle: pData.angle }); p.score = pData.score; }
+                        });
+                        game.bullets = data.bullets.map(b => Object.assign(new Bullet(), b));
+                        game.gems = data.gems;
+                    }
+                    if (data.type === 'fxExplosion') { playAudioFX('explosion'); game.shakeIntensity = 15; FX.spawn(data.x, data.y, '#ff4757', 4, 4, 30); }
+                }
+            }
+        }
+        const net = new NetworkManager();
+
+        // ==========================================
+        // ARQUITECTURA GENERAL DEL MOTOR DEL JUEGO
+        // ==========================================
+        class CoreEngine {
+            constructor() {
+                this.localId = ""; this.localPlayer = null;
+                this.players = {}; this.bullets = []; this.gems = [];
+                this.keys = {}; this.mouseAngle = 0; this.lastTime = performance.now();
+                this.netTimer = 0; this.shakeIntensity = 0;
+            }
+
+            start(name, color) {
+                this.localId = 'usr_' + Math.random().toString(36).substring(2,7);
+                this.localPlayer = new Player(this.localId, name, Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE, color, true);
+                this.players[this.localId] = this.localPlayer;
+
+                // Registro Eventos Periféricos
+                window.addEventListener('keydown', (e) => this.keys[e.key] = true);
+                window.addEventListener('keyup', (e) => this.keys[e.key] = false);
+                window.addEventListener('mousemove', (e) => {
+                    let dx = e.clientX - canvas.width / 2, dy = e.clientY - canvas.height / 2;
+                    this.mouseAngle = Math.atan2(dy, dx);
+                });
+                window.addEventListener('click', () => {
+                    if(net.isHost) {
+                        this.bullets.push(new Bullet(Math.random().toString(), this.localId, this.localPlayer.x, this.localPlayer.y, this.localPlayer.angle));
+                        playAudioFX('laser');
+                    } else {
+                        net.sendToHost({ type: 'fire', x: this.localPlayer.x, y: this.localPlayer.y, angle: this.localPlayer.angle });
+                    }
+                });
+
+                window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; generateStars(); });
+                canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+                generateStars();
+
+                if (net.isHost) {
+                    for(let i=0; i<60; i++) this.gems.push({ x: Math.random()*WORLD_SIZE, y: Math.random()*WORLD_SIZE, seed: Math.random()*10 });
+                }
+
+                // Ajustes UI finales
+                document.getElementById('lobbyUI').style.display = 'none';
+                document.getElementById('hud').style.display = 'block';
+                document.getElementById('leaderboard').style.display = 'block';
+                document.getElementById('roomPanel').style.display = 'block';
+                document.getElementById('roomString').innerText = `ID DE SALA: ${net.roomCode}`;
+                document.getElementById('roleString').innerText = net.isHost ? "MODO: HOST (SERVIDOR CENTRAL)" : "MODO: PEER CONECTADO";
+
+                requestAnimationFrame((t) => this.loop(t));
+            }
+
+            loop(now) {
+                let dt = (now - this.lastTime) / 1000; this.lastTime = now;
+                if(dt > 0.1) dt = 0.1;
+
+                this.update(dt);
+                this.render();
+                requestAnimationFrame((t) => this.loop(t));
+            }
+
+            update(dt) {
+                Object.values(this.players).forEach(p => p.update(dt, this.keys, this.mouseAngle));
+                FX.update(dt);
+
+                if (this.shakeIntensity > 0) this.shakeIntensity *= 0.9; // Atenuar impacto cámara
+
+                if (net.isHost) {
+                    // Servidor calcula movimientos e impactos de proyectiles
+                    for (let i = this.bullets.length - 1; i >= 0; i--) {
+                        let b = this.bullets[i]; b.update(dt);
+                        let destroyed = false;
+
+                        Object.values(this.players).forEach(p => {
+                            if (b.ownerId !== p.id) {
+                                let dx = b.x - p.x, dy = b.y - p.y;
+                                if (Math.sqrt(dx*dx + dy*dy) < p.radius + b.radius) {
+                                    p.score = Math.max(0, p.score - 4);
+                                    if(this.players[b.ownerId]) this.players[b.ownerId].score += 10;
+                                    
+                                    // Respawn inmediato forzado por autoridad del Host
+                                    p.x = Math.random()*WORLD_SIZE; p.y = Math.random()*WORLD_SIZE; p.vx = 0; p.vy = 0;
+                                    
+                                    playAudioFX('explosion');
+                                    this.shakeIntensity = 15;
+                                    FX.spawn(p.x, p.y, '#ff4757', 4, 4, 30);
+                                    net.broadcast({ type: 'fxExplosion', x: p.x, y: p.y });
+                                    destroyed = true;
+                                }
+                            }
+                        });
+
+                        if (destroyed || b.life <= 0) this.bullets.splice(i, 1);
+                    }
+
+                    // Absorción de gemas estelares
+                    for (let i = this.gems.length - 1; i >= 0; i--) {
+                        let g = this.gems[i];
+                        Object.values(this.players).forEach(p => {
+                            let dx = p.x - g.x, dy = p.y - g.y;
+                            if (Math.sqrt(dx*dx + dy*dy) < p.radius + 8) {
+                                p.score += 1;
+                                this.gems.splice(i, 1);
+                                this.gems.push({ x: Math.random()*WORLD_SIZE, y: Math.random()*WORLD_SIZE, seed: Math.random()*10 });
+                            }
+                        });
+                    }
+
+                    // Retransmisión de red uniforme (Snapshot de red)
+                    this.netTimer += dt * 1000;
+                    if (this.netTimer >= 45) {
+                        net.broadcast({
+                            type: 'snapshot',
+                            players: Object.values(this.players).map(p => ({ id: p.id, name: p.name, x: p.x, y: p.y, angle: p.angle, score: p.score, color: p.color })),
+                            bullets: this.bullets,
+                            gems: this.gems
+                        });
+                        this.netTimer = 0;
+                    }
+                } else {
+                    // Cliente sube su posición estimada al host
+                    this.netTimer += dt * 1000;
+                    if (this.netTimer >= 45) {
+                        net.sendToHost({ type: 'sync', name: this.localPlayer.name, color: this.localPlayer.color, x: this.localPlayer.x, y: this.localPlayer.y, angle: this.localPlayer.angle });
+                        this.netTimer = 0;
+                    }
+                }
+
+                document.getElementById('scoreVal').innerText = this.localPlayer.score;
+                this.drawLeaderboard();
+            }
+
+            drawLeaderboard() {
+                let sorted = Object.values(this.players).sort((a,b) => b.score - a.score);
+                document.getElementById('lbContent').innerHTML = sorted.slice(0, 5).map((p, i) => `
+                    <div class="lb-row" style="color: ${p.color}">
+                        <span>${i+1}. ${p.name.toUpperCase()}</span>
+                        <span>${p.score} PTS</span>
+                    </div>
+                `).join('');
+            }
+
+            render() {
+                ctx.fillStyle = '#03030c'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                let cx = this.localPlayer.x - canvas.width / 2;
+                let cy = this.localPlayer.y - canvas.height / 2;
+
+                // --- EFECTO JUICE: SHAKE CAMERA ---
+                ctx.save();
+                if (this.shakeIntensity > 0.2) {
+                    let dx = (Math.random() - 0.5) * this.shakeIntensity;
+                    let dy = (Math.random() - 0.5) * this.shakeIntensity;
+                    ctx.translate(dx, dy);
+                }
+
+                // Render Background Estrellas con Parallax Matemático
+                ctx.fillStyle = '#fff';
+                starsBackground.forEach(s => {
+                    let sx = (s.x - cx * s.depth) % canvas.width;
+                    let sy = (s.y - cy * s.depth) % canvas.height;
+                    if (sx < 0) sx += canvas.width; if (sy < 0) sy += canvas.height;
+                    ctx.globalAlpha = s.brightness;
+                    ctx.fillRect(sx, sy, s.size, s.size);
+                });
+                ctx.globalAlpha = 1.0;
+
+                // Dibujar Líneas Perimetrales de la Arena Neón
+                ctx.strokeStyle = '#5758bb'; ctx.lineWidth = 2; ctx.shadowBlur = 15; ctx.shadowColor = '#5758bb';
+                ctx.strokeRect(-cx, -cy, WORLD_SIZE, WORLD_SIZE);
+                ctx.shadowBlur = 0;
+
+                // Dibujar Cristales / Gemas de Energía
+                this.gems.forEach(g => {
+                    ctx.save();
+                    ctx.shadowBlur = 10; ctx.shadowColor = '#00d2d3'; ctx.fillStyle = '#00d2d3';
+                    ctx.translate(g.x - cx, g.y - cy);
+                    ctx.rotate(g.seed); // Rotación fija procedimental
+                    ctx.fillRect(-4, -4, 8, 8);
+                    ctx.restore();
+                });
+                ctx.shadowBlur = 0;
+
+                // Dibujar Proyectiles Activos
+                ctx.save(); ctx.globalCompositeOperation = 'screen';
+                this.bullets.forEach(b => {
+                    ctx.fillStyle = b.color; ctx.shadowBlur = 8; ctx.shadowColor = b.color;
+                    ctx.beginPath(); ctx.arc(b.x - cx, b.y - cy, 3, 0, Math.PI*2); ctx.fill();
+                });
+                ctx.restore(); ctx.shadowBlur = 0;
+
+                // Dibujar Jugadores Activos y Partículas
+                Object.values(this.players).forEach(p => p.draw(ctx, cx, cy));
+                FX.draw(ctx, cx, cy);
+
+                ctx.restore(); // Termina Screen Shake
+            }
+        }
+
+        const game = new CoreEngine();
+
+        // Control de Selección Estética de Color
+        let activeColor = '#00d2d3';
+        document.querySelectorAll('.color-opt').forEach(opt => {
+            opt.addEventListener('click', () => {
+                document.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected'); activeColor = opt.getAttribute('data-color');
+            });
+        });
+
+        const statusMsg = document.getElementById('statusMsg');
+
+        document.getElementById('btnHost').addEventListener('click', () => {
+            statusMsg.innerText = "Negociando canal WebRTC seguro...";
+            net.initHost((id) => {
+                game.start(document.getElementById('username').value, activeColor);
+            });
+        });
+
+        document.getElementById('btnJoin').addEventListener('click', () => {
+            let target = document.getElementById('joinId').value.trim();
+            if(!target) return alert("Código de sala inválido.");
+            statusMsg.innerText = "Interconectando órbitas...";
+            net.initClient(target, () => {
+                game.start(document.getElementById('username').value, activeColor);
+            });
+        });
+
+        document.getElementById('btnCopy').addEventListener('click', () => {
+            navigator.clipboard.writeText(net.roomCode);
+            let btn = document.getElementById('btnCopy');
+            btn.innerText = "¡COPIADO!";
+            setTimeout(() => btn.innerText = "COPIAR ID", 1500);
+        });
+    </script>
+</body>
+</html>
