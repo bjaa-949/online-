@@ -3,17 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AstroArena.io - Multijugador Avanzado</title>
-    <!-- PeerJS para conexiones directas P2P -->
+    <title>AstroArena.io - Firebase Realtime P2P</title>
+    <!-- PeerJS para conexiones directas WebRTC entre jugadores -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    
+    <!-- Mapa de importaciones para módulos oficiales de Firebase v10 -->
+    <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+          "firebase/database": "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"
+        }
+      }
+    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body, html { width: 100%; height: 100%; overflow: hidden; background-color: #03030c; font-family: 'Courier New', Courier, monospace; color: #fff; }
         
-        /* Capa del canvas del juego al fondo */
         #gameCanvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
         
-        /* UI Menú Base por encima de todo */
         #lobbyUI {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background: rgba(8, 8, 24, 0.95); padding: 30px; border-radius: 16px;
@@ -22,7 +30,6 @@
         }
         h1 { font-size: 28px; margin-bottom: 15px; color: #00d2d3; text-shadow: 0 0 15px rgba(0, 210, 211, 0.6); }
         
-        /* Pestañas */
         .tabs { display: flex; margin-bottom: 15px; border-bottom: 1px solid #5758bb; }
         .tab { flex: 1; padding: 10px; cursor: pointer; color: #888; text-transform: uppercase; font-size: 12px; font-weight: bold; }
         .tab.active { color: #00d2d3; border-bottom: 2px solid #00d2d3; background: rgba(87, 88, 187, 0.1); }
@@ -36,7 +43,6 @@
             font-family: inherit; outline: none;
         }
         
-        /* Opciones de Servidor Privado/Público */
         .room-type-container { display: flex; gap: 10px; margin-bottom: 15px; }
         .type-btn { flex: 1; padding: 10px; background: #0c0c24; border: 1px solid #5758bb; color: #fff; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; text-align: center; }
         .type-btn.selected { border-color: #ff3f34; background: rgba(255, 63, 52, 0.1); color: #ff3f34; font-weight: bold; }
@@ -52,14 +58,12 @@
         .btn-host { background: linear-gradient(135deg, #ff3f34, #ff5e57); }
         .btn-join { background: linear-gradient(135deg, #05c46b, #0be881); }
         
-        /* Lista de Servidores */
         .server-list { background: #0c0c24; border: 1px solid #5758bb; border-radius: 6px; height: 180px; overflow-y: auto; margin-bottom: 10px; padding: 5px; }
         .server-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid rgba(87, 88, 187, 0.2); font-size: 12px; }
         .server-item:last-child { border-bottom: none; }
         .join-item-btn { background: #05c46b; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px; }
         .no-servers { text-align: center; color: #666; font-size: 12px; margin-top: 70px; }
 
-        /* HUD Elementos con alta prioridad de capas */
         #hud { position: absolute; top: 25px; left: 25px; z-index: 5; font-size: 22px; font-weight: bold; color: #0be881; display: none; }
         #leaderboard { position: absolute; top: 25px; right: 25px; background: rgba(6, 6, 18, 0.85); padding: 15px; border-radius: 10px; min-width: 200px; display: none; border: 1px solid #5758bb; z-index: 5; }
         .lb-title { color: #ffdd59; font-size: 12px; margin-bottom: 8px; border-bottom: 1px dashed rgba(255,221,89,0.3); padding-bottom: 5px; }
@@ -70,19 +74,16 @@
 </head>
 <body>
 
-    <!-- El lienzo del juego renderizado detrás de la interfaz -->
     <canvas id="gameCanvas"></canvas>
 
-    <!-- UI Menú de Entrada Principal -->
     <div id="lobbyUI">
         <h1>ASTROARENA.IO</h1>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab(event, 'hostTab')">Crear Servidor</div>
-            <div class="tab" onclick="switchTab(event, 'joinTab'); refreshServerList();">Buscar Servidores</div>
+            <div id="tabBtnHost" class="tab active">Crear Servidor</div>
+            <div id="tabBtnJoin" class="tab">Buscar Servidores</div>
         </div>
 
-        <!-- CONFIGURACIÓN GLOBAL DE USUARIO -->
         <label>Nombre del Piloto</label>
         <input type="text" id="username" value="StarFighter" maxlength="12">
         
@@ -99,8 +100,8 @@
         <div id="hostTab" class="tab-content active">
             <label>Visibilidad del Servidor</label>
             <div class="room-type-container">
-                <div id="typePublic" class="type-btn selected" onclick="setRoomType(true)">PÚBLICO (Lista Global)</div>
-                <div id="typePrivate" class="type-btn" onclick="setRoomType(false)">PRIVADO (Código)</div>
+                <div id="typePublic" class="type-btn selected">PÚBLICO (Lista Global)</div>
+                <div id="typePrivate" class="type-btn">PRIVADO (Código)</div>
             </div>
             <button id="btnHost" class="btn btn-host">Lanzar Servidor</button>
         </div>
@@ -120,42 +121,48 @@
         <div id="statusMsg" style="margin-top:15px; font-size:11px; color:#666; text-transform: uppercase; text-align: center;">En Hangar...</div>
     </div>
 
-    <!-- HUD de estado en partida -->
     <div id="hud">SCORE: <span id="scoreVal">0</span></div>
     <div id="leaderboard"><div class="lb-title">📡 RADAR DE PUNTUACIONES</div><div id="lbContent"></div></div>
     <div id="roomPanel" class="room-panel"><span id="roomString">SALA: -</span><span class="copy-badge" id="btnCopy">COPIAR ID</span></div>
 
-    <script>
+    <script type="module">
+        import { initializeApp } from "firebase/app";
+        import { getDatabase, ref, set, onValue, onDisconnect } from "firebase/database";
+
+        // ==========================================
+        // CONFIGURACIÓN DE TU CONFIG DE FIREBASE
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCR9L0Ll756X5YRrzXAcZb3TsKkcWLyLz0",
+            authDomain: "online-ee004.firebaseapp.com",
+            databaseURL: "https://online-ee004-default-rtdb.firebaseio.com",
+            projectId: "online-ee004",
+            storageBucket: "online-ee004.firebasestorage.app",
+            messagingSenderId: "339846178911",
+            appId: "1:339846178911:web:f3abbee7289d3dc73493ea",
+            measurementId: "G-EM3459YE9B"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // ==========================================
+        // VARIABLES DEL JUEGO Y CANVAS
+        // ==========================================
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const WORLD_SIZE = 3000;
-        
-        // CENTRAL DE MATCHMAKING ACCESIBLE (Servidor Intermedio Temporal)
-        const MATCHMAKER_URL = 'https://kvstore.pcloud.com/v1/crypto/pub'; 
-        const LOBBY_KEY = "astroarena_v1_rooms";
 
         let starsBackground = [];
         let isPublicRoom = true;
+        let activeColor = '#00d2d3';
+        let firebaseRoomRef = null;
 
         function generateStars() {
             starsBackground = [];
             for (let i = 0; i < 150; i++) {
                 starsBackground.push({ x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight, depth: Math.random() * 0.6 + 0.1, size: Math.random() * 2 });
             }
-        }
-
-        // Pestañas de Navegación UI arregladas
-        function switchTab(e, tabId) {
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            e.currentTarget.classList.add('active');
-        }
-
-        function setRoomType(isPub) {
-            isPublicRoom = isPub;
-            document.getElementById('typePublic').classList.toggle('selected', isPub);
-            document.getElementById('typePrivate').classList.toggle('selected', !isPub);
         }
 
         // ==========================================
@@ -248,7 +255,7 @@
         }
 
         // ==========================================
-        // INFRAESTRUCTURA DE RED CENTRALIZADA
+        // INFRAESTRUCTURA DE RED CON FIREBASE Y PEERJS
         // ==========================================
         class NetworkManager {
             constructor() { this.peer = null; this.connections = {}; this.isHost = false; this.roomCode = ""; }
@@ -259,7 +266,18 @@
                 
                 this.peer.on('open', (id) => { 
                     this.roomCode = id; 
-                    if (isPublicRoom) this.registerPublicServer(id);
+                    
+                    if (isPublicRoom) {
+                        let hostName = document.getElementById('username').value || "ANÓNIMO";
+                        firebaseRoomRef = ref(db, 'public_rooms/' + id);
+                        set(firebaseRoomRef, {
+                            id: id,
+                            hostName: hostName.toUpperCase(),
+                            createdAt: Date.now()
+                        });
+                        onDisconnect(firebaseRoomRef).remove();
+                    }
+                    
                     onReady(id); 
                 });
                 
@@ -334,26 +352,6 @@
                     bullets: game.bullets, gems: game.gems
                 });
             }
-
-            async registerPublicServer(peerId) {
-                try {
-                    let name = document.getElementById('username').value || "Sala Estelar";
-                    let currentRooms = [];
-                    try {
-                        let res = await fetch(`${MATCHMAKER_URL}/${LOBBY_KEY}`);
-                        if(res.ok) { let json = await res.json(); currentRooms = JSON.parse(json.value) || []; }
-                    } catch(e) {}
-                    
-                    currentRooms = currentRooms.filter(r => Date.now() - r.stamp < 120000); 
-                    currentRooms.push({ id: peerId, hostName: name.toUpperCase(), stamp: Date.now() });
-                    
-                    await fetch(MATCHMAKER_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: LOBBY_KEY, value: JSON.stringify(currentRooms) })
-                    });
-                } catch(err) {}
-            }
         }
         const net = new NetworkManager();
 
@@ -378,9 +376,7 @@
                     this.mouseAngle = Math.atan2(dy, dx);
                 });
                 window.addEventListener('click', (e) => {
-                    // Evitar disparar si estás haciendo clic en elementos de la interfaz interactiva activa
                     if (document.getElementById('lobbyUI').style.display !== 'none') return;
-                    
                     if(net.isHost) {
                         this.bullets.push(new Bullet(Math.random().toString(), this.localId, this.localPlayer.x, this.localPlayer.y, this.localPlayer.angle));
                     } else {
@@ -505,33 +501,34 @@
 
         const game = new CoreEngine();
 
-        // Lógica de Renderizado y Consulta de Servidores Públicos
-        async function refreshServerList() {
-            const container = document.getElementById('serverListContainer');
-            container.innerHTML = '<div class="no-servers">Escaneando hiperespacio...</div>';
-            try {
-                let res = await fetch(`${MATCHMAKER_URL}/${LOBBY_KEY}`);
-                if (!res.ok) throw new Error();
-                let json = await res.json();
-                let rooms = JSON.parse(json.value) || [];
-                
-                rooms = rooms.filter(r => Date.now() - r.stamp < 120000);
-                
-                if(rooms.length === 0) {
-                    container.innerHTML = '<div class="no-servers">No hay salas públicas. ¡Crea una!</div>';
+        // ==========================================
+        // ESCUCHA EN TIEMPO REAL DE FIREBASE RTDB
+        // ==========================================
+        const serverListContainer = document.getElementById('serverListContainer');
+        const publicRoomsRef = ref(db, 'public_rooms');
+
+        onValue(publicRoomsRef, (snapshot) => {
+            if (document.getElementById('joinTab').classList.contains('active')) {
+                const data = snapshot.val();
+                if (!data) {
+                    serverListContainer.innerHTML = '<div class="no-servers">No hay salas públicas. ¡Crea una!</div>';
                     return;
                 }
-                
-                container.innerHTML = rooms.map(r => `
+
+                serverListContainer.innerHTML = Object.values(data).map(room => `
                     <div class="server-item">
-                        <span>🚀 SERVIDOR DE: <b>${r.hostName}</b></span>
-                        <button class="join-item-btn" onclick="directConnect('${r.id}')">UNIRSE</button>
+                        <span>🚀 SERVIDOR DE: <b>${room.hostName}</b></span>
+                        <button class="join-item-btn" data-id="${room.id}">UNIRSE</button>
                     </div>
                 `).join('');
-            } catch(e) {
-                container.innerHTML = '<div class="no-servers">No se encontraron naves activas.</div>';
+
+                document.querySelectorAll('.join-item-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        directConnect(btn.getAttribute('data-id'));
+                    });
+                });
             }
-        }
+        });
 
         function directConnect(id) {
             document.getElementById('statusMsg').innerText = "Estableciendo puente WebRTC...";
@@ -540,12 +537,40 @@
             });
         }
 
-        // Eventos de botones principales de la UI
-        let activeColor = '#00d2d3';
+        // ==========================================
+        // CONTROLADORES DE INTERFAZ DE USUARIO (UI)
+        // ==========================================
+        document.getElementById('tabBtnHost').addEventListener('click', () => {
+            document.getElementById('joinTab').classList.remove('active');
+            document.getElementById('tabBtnJoin').classList.remove('active');
+            document.getElementById('hostTab').classList.add('active');
+            document.getElementById('tabBtnHost').classList.add('active');
+        });
+
+        document.getElementById('tabBtnJoin').addEventListener('click', () => {
+            document.getElementById('hostTab').classList.remove('active');
+            document.getElementById('tabBtnHost').classList.remove('active');
+            document.getElementById('joinTab').classList.add('active');
+            document.getElementById('tabBtnJoin').classList.add('active');
+        });
+
+        document.getElementById('typePublic').addEventListener('click', () => {
+            isPublicRoom = true;
+            document.getElementById('typePublic').classList.add('selected');
+            document.getElementById('typePrivate').classList.remove('selected');
+        });
+
+        document.getElementById('typePrivate').addEventListener('click', () => {
+            isPublicRoom = false;
+            document.getElementById('typePrivate').classList.add('selected');
+            document.getElementById('typePublic').classList.remove('selected');
+        });
+
         document.querySelectorAll('.color-opt').forEach(opt => {
             opt.addEventListener('click', () => {
                 document.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
-                opt.classList.add('selected'); activeColor = opt.getAttribute('data-color');
+                opt.classList.add('selected'); 
+                activeColor = opt.getAttribute('data-color');
             });
         });
 
