@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AstroArena.io - Firebase Realtime P2P</title>
     <!-- PeerJS para conexiones directas WebRTC entre jugadores -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -49,7 +49,7 @@
         .control-btn { flex: 1; padding: 10px; background: #0c0c24; border: 1px solid #5758bb; color: #fff; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; text-align: center; }
         .control-btn.selected { border-color: #00d2d3; background: rgba(0, 210, 211, 0.1); color: #00d2d3; font-weight: bold; }
 
-        .color-picker { display: flex; justify-space: space-between; margin-bottom: 15px; gap: 5px; }
+        .color-picker { display: flex; justify-content: space-between; margin-bottom: 15px; gap: 5px; }
         .color-opt { width: 35px; height: 35px; border-radius: 6px; cursor: pointer; border: 2px solid rgba(0,0,0,0.4); flex: 1; }
         .color-opt.selected { border-color: #fff; box-shadow: 0 0 10px currentColor; }
         
@@ -68,16 +68,33 @@
 
         #hud { position: absolute; top: 25px; left: 25px; z-index: 5; font-size: 22px; font-weight: bold; color: #0be881; display: none; }
         #skillhud { position: absolute; top: 60px; left: 25px; z-index: 5; font-size: 14px; font-weight: bold; color: #ffdd59; display: none; background: rgba(0,0,0,0.4); padding: 5px 10px; border-radius: 5px; }
-        #leaderboard { position: absolute; top: 25px; right: 25px; background: rgba(6, 6, 18, 0.85); padding: 15px; border-radius: 10px; min-width: 200px; display: none; border: 1px solid #5758bb; z-index: 5; }
+        #leaderboard { position: absolute; top: 25px; right: 80px; background: rgba(6, 6, 18, 0.85); padding: 15px; border-radius: 10px; min-width: 200px; display: none; border: 1px solid #5758bb; z-index: 5; }
         .lb-title { color: #ffdd59; font-size: 12px; margin-bottom: 8px; border-bottom: 1px dashed rgba(255,221,89,0.3); padding-bottom: 5px; }
         .lb-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
         .room-panel { position: absolute; bottom: 25px; left: 25px; background: rgba(6, 6, 18, 0.85); padding: 12px; border-radius: 8px; border: 1px solid #5758bb; display: none; font-size: 12px; z-index: 5; }
         .copy-badge { background: #5758bb; padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer; margin-left: 5px; }
+
+        /* Botón de Pantalla Completa */
+        #fullscreenBtn {
+            position: absolute; top: 25px; right: 25px; width: 40px; height: 40px;
+            background: rgba(6, 6, 18, 0.85); border: 1px solid #5758bb; border-radius: 8px;
+            z-index: 100; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 10px rgba(87, 88, 187, 0.3); transition: 0.2s;
+        }
+        #fullscreenBtn:active { transform: scale(0.9); }
+        #fullscreenBtn svg { width: 20px; height: 20px; fill: #00d2d3; }
     </style>
 </head>
 <body>
 
     <canvas id="gameCanvas"></canvas>
+
+    <!-- Botón de Pantalla Completa (Esquina Superior Derecha) -->
+    <div id="fullscreenBtn" title="Pantalla Completa">
+        <svg viewBox="0 0 24 24">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+        </svg>
+    </div>
 
     <div id="lobbyUI">
         <h1>ASTROARENA.IO</h1>
@@ -160,21 +177,28 @@
 
         let starsBackground = [];
         let isPublicRoom = true;
-        let controlMode = "pc"; // "pc" o "mobile"
+        let controlMode = "pc"; 
         let activeColor = '#00d2d3';
         let firebaseRoomRef = null;
 
-        // Estructura para el control táctil (Joystick)
+        // Parámetros del Joystick Virtual
         const joystick = {
             active: false,
             pointerId: null,
-            startX: 0,
-            startY: 0,
-            currentX: 0,
-            currentY: 0,
+            startX: 0, startY: 0,
+            currentX: 0, currentY: 0,
             maxRadius: 60,
-            moveX: 0, // Fuerza eje X (-1 a 1)
-            moveY: 0  // Fuerza eje Y (-1 a 1)
+            moveX: 0, moveY: 0  
+        };
+
+        // Parámetros de la cámara y el Zoom dinámico
+        const camera = {
+            zoom: 1.0,
+            minZoom: 0.5,
+            maxZoom: 1.8,
+            targetZoom: 1.0,
+            initialPinchDist: 0,
+            isPinching: false
         };
 
         function generateStars() {
@@ -222,14 +246,11 @@
                 this.vx = 0; this.vy = 0; this.angle = 0; this.color = color;
                 this.radius = 16; this.score = 0; this.isLocal = isLocal;
                 this.buffer = [];
-                
-                // Atributos de habilidades
                 this.activeSkill = "NINGUNA";
                 this.skillTimeLeft = 0;
             }
             update(dt, keys, targetAngle) {
                 if (this.isLocal) {
-                    // Gestión de Buffs locales
                     if (this.skillTimeLeft > 0) {
                         this.skillTimeLeft -= dt;
                         if (this.skillTimeLeft <= 0) {
@@ -238,10 +259,9 @@
                         }
                     }
 
-                    // Variación de velocidad según habilidad activa
                     let currentSpeedForce = 0.35;
                     if (this.activeSkill === "SUPER_VELOCIDAD") {
-                        currentSpeedForce = 0.65; // Mucho más rápido
+                        currentSpeedForce = 0.65; 
                     }
 
                     if (controlMode === "pc") {
@@ -253,12 +273,8 @@
                             if(Math.random() < 0.4) FX.spawn(this.x - Math.cos(this.angle)*12, this.y - Math.sin(this.angle)*12, '#ff9f43', 1.5, 1);
                         }
                     } else {
-                        // Lógica para Móvil (Joystick)
                         if (joystick.active) {
-                            // Calcular el ángulo según la posición del joystick
                             this.angle = Math.atan2(joystick.moveY, joystick.moveX);
-                            
-                            // La intensidad depende de qué tan lejos está el arrastre
                             let joystickDist = Math.sqrt(joystick.moveX*joystick.moveX + joystick.moveY*joystick.moveY);
                             if (joystickDist > 0.1) {
                                 this.vx += Math.cos(this.angle) * currentSpeedForce * joystickDist;
@@ -294,7 +310,6 @@
                 ctx.shadowBlur = 8; ctx.shadowColor = this.color;
                 ctx.strokeStyle = this.color; ctx.fillStyle = "rgba(10,10,30,0.8)"; ctx.lineWidth = 3;
                 
-                // Aura visual especial si tiene escudo o súper velocidad activa
                 if (this.activeSkill === "SUPER_VELOCIDAD") {
                     ctx.strokeStyle = "#ff9f43";
                 } else if (this.activeSkill === "DISPARO_TRIPLE") {
@@ -303,9 +318,9 @@
 
                 ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-14, -11); ctx.lineTo(-7, 0); ctx.lineTo(-14, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
                 ctx.restore();
-                ctx.fillStyle = "#fff"; ctx.font = "11px monospace"; ctx.textAlign = "center";
                 
-                // Mostrar nombre y habilidad actual encima de la nave
+                // Texto escalable (evitamos que se rompa con zooms muy bajos)
+                ctx.fillStyle = "#fff"; ctx.font = "11px monospace"; ctx.textAlign = "center";
                 let infoString = this.name.toUpperCase();
                 if (this.activeSkill !== "NINGUNA") infoString += ` [${this.activeSkill.replace('_',' ')}]`;
                 ctx.fillText(infoString, sx, sy - 22);
@@ -333,41 +348,25 @@
                 
                 this.peer.on('open', (id) => { 
                     this.roomCode = id; 
-                    
                     if (isPublicRoom) {
                         let hostName = document.getElementById('username').value || "ANÓNIMO";
                         firebaseRoomRef = ref(db, 'public_rooms/' + id);
-                        set(firebaseRoomRef, {
-                            id: id,
-                            hostName: hostName.toUpperCase(),
-                            createdAt: Date.now()
-                        });
+                        set(firebaseRoomRef, { id: id, hostName: hostName.toUpperCase(), createdAt: Date.now() });
                         onDisconnect(firebaseRoomRef).remove();
                     }
-                    
                     onReady(id); 
                 });
-                
                 this.peer.on('connection', (c) => {
-                    c.on('open', () => {
-                        this.connections[c.peer] = c;
-                        this.bindEvents(c);
-                    });
+                    c.on('open', () => { this.connections[c.peer] = c; this.bindEvents(c); });
                 });
             }
 
             initClient(code, onReady) {
-                this.isHost = false;
-                this.roomCode = code;
+                this.isHost = false; this.roomCode = code;
                 this.peer = new Peer(null, { debug: 1 });
-                
                 this.peer.on('open', () => {
                     let c = this.peer.connect(code, { reliable: true });
-                    c.on('open', () => {
-                        this.connections[code] = c;
-                        this.bindEvents(c);
-                        onReady();
-                    });
+                    c.on('open', () => { this.connections[code] = c; this.bindEvents(c); onReady(); });
                     c.on('error', (err) => { alert("Error al enlazar con el host."); location.reload(); });
                 });
             }
@@ -390,49 +389,34 @@
                         let p = game.players[sender];
                         if (p) {
                             p.buffer.push({ t: Date.now(), x: data.x, y: data.y, angle: data.angle });
-                            p.activeSkill = data.activeSkill; // Sincronizar skill de cliente a host
+                            p.activeSkill = data.activeSkill;
                         }
                     }
-                    if (data.type === 'fire') {
-                        game.spawnBulletsFromEvent(sender, data.x, data.y, data.angle);
-                    }
+                    if (data.type === 'fire') { game.spawnBulletsFromEvent(sender, data.x, data.y, data.angle); }
                     if (data.type === 'skill_acquired') {
                         let p = game.players[sender];
                         if(p) {
-                            p.activeSkill = data.skill;
-                            // Remover la habilidad del mapa global
-                            game.skills = game.skills.filter(s => s.id !== data.skillId);
-                            // Notificar inmediatamente la remoción y actualización
+                            p.activeSkill = data.skill; game.skills = game.skills.filter(s => s.id !== data.skillId);
                             this.forceSnapshot();
                         }
                     }
                 } else {
                     if (data.type === 'snapshot') {
                         data.players.forEach(pData => {
-                            if (pData.id === game.localId) { 
-                                game.localPlayer.score = pData.score; 
-                                return; 
-                            }
+                            if (pData.id === game.localId) { game.localPlayer.score = pData.score; return; }
                             let p = game.players[pData.id];
                             if (!p) game.players[pData.id] = new Player(pData.id, pData.name, pData.x, pData.y, pData.color, false);
-                            else { 
-                                p.buffer.push({ t: Date.now(), x: pData.x, y: pData.y, angle: pData.angle }); 
-                                p.score = pData.score;
-                                p.activeSkill = pData.activeSkill;
-                            }
+                            else { p.buffer.push({ t: Date.now(), x: pData.x, y: pData.y, angle: pData.angle }); p.score = pData.score; p.activeSkill = pData.activeSkill; }
                         });
-                        
                         Object.keys(game.players).forEach(id => {
                             if(id !== game.localId && !data.players.some(p => p.id === id)) delete game.players[id];
                         });
                         game.bullets = data.bullets.map(b => Object.assign(new Bullet(), b));
-                        game.gems = data.gems;
-                        game.skills = data.skills; // Recibir habilidades del host
+                        game.gems = data.gems; game.skills = data.skills;
                     }
                     if (data.type === 'fxExplosion') { game.shakeIntensity = 12; FX.spawn(data.x, data.y, '#ff4757', 3, 25); }
                     if (data.type === 'grant_skill' && data.targetId === game.localId) {
-                        game.localPlayer.activeSkill = data.skill;
-                        game.localPlayer.skillTimeLeft = 5; // Duración obligatoria de 5 segundos
+                        game.localPlayer.activeSkill = data.skill; game.localPlayer.skillTimeLeft = 5;
                     }
                 }
             }
@@ -452,8 +436,7 @@
         // ==========================================
         class CoreEngine {
             constructor() {
-                this.localId = ""; this.localPlayer = null; this.players = {}; this.bullets = []; this.gems = [];
-                this.skills = []; // Almacena habilidades activas en el mapa
+                this.localId = ""; this.localPlayer = null; this.players = {}; this.bullets = []; this.gems = []; this.skills = [];
                 this.keys = {}; this.mouseAngle = 0; this.lastTime = performance.now(); this.netTimer = 0; this.shakeIntensity = 0;
             }
 
@@ -462,32 +445,39 @@
                 this.localPlayer = new Player(this.localId, name, Math.random()*WORLD_SIZE, Math.random()*WORLD_SIZE, color, true);
                 this.players[this.localId] = this.localPlayer;
 
-                // Eventos de entrada clásicos (PC)
                 window.addEventListener('keydown', (e) => this.keys[e.key] = true);
                 window.addEventListener('keyup', (e) => this.keys[e.key] = false);
+                
                 window.addEventListener('mousemove', (e) => {
                     if (controlMode !== "pc") return;
-                    let dx = e.clientX - canvas.width / 2, dy = e.clientY - canvas.height / 2;
+                    // Adaptamos el cálculo del ángulo del ratón al Zoom actual de la cámara
+                    let dx = (e.clientX - canvas.width / 2) / camera.zoom;
+                    let dy = (e.clientY - canvas.height / 2) / camera.zoom;
                     this.mouseAngle = Math.atan2(dy, dx);
                 });
                 
                 window.addEventListener('click', (e) => {
                     if (document.getElementById('lobbyUI').style.display !== 'none') return;
-                    // En móviles, el click de disparo se maneja tocando cualquier parte de la pantalla que no sea el joystick
+                    if (e.target.closest('#fullscreenBtn')) return; // Evitar disparar al tocar el botón full screen
                     if (controlMode === "mobile") return; 
                     this.fireWeapon();
                 });
 
-                // Configurar Eventos Táctiles Especiales para el Móvil
+                // Soporte para Zoom con Rueda del Ratón (PC)
+                window.addEventListener('wheel', (e) => {
+                    if (document.getElementById('lobbyUI').style.display !== 'none') return;
+                    if (e.deltaY < 0) camera.targetZoom += 0.08;
+                    else camera.targetZoom -= 0.08;
+                    camera.targetZoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.targetZoom));
+                }, { passive: true });
+
                 this.setupTouchControls();
 
                 window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; generateStars(); });
                 canvas.width = window.innerWidth; canvas.height = window.innerHeight; generateStars();
 
                 if (net.isHost) {
-                    // Inicializar gemas
                     for(let i=0; i<50; i++) this.gems.push({ x: Math.random()*WORLD_SIZE, y: Math.random()*WORLD_SIZE });
-                    // Inicializar habilidades esparcidas en el mapa (Empiezan con 6 en el mapa)
                     for(let i=0; i<6; i++) this.spawnRandomSkillOnMap();
                 } else {
                     net.sendToHost({ type: 'join_presentation', name: this.localPlayer.name, color: this.localPlayer.color });
@@ -503,7 +493,6 @@
                 requestAnimationFrame((t) => this.loop(t));
             }
 
-            // Gestión de disparo según los buffs activos
             fireWeapon() {
                 if(net.isHost) {
                     this.spawnBulletsFromEvent(this.localId, this.localPlayer.x, this.localPlayer.y, this.localPlayer.angle);
@@ -519,7 +508,6 @@
 
                 if (currentSkill === "DISPARO_TRIPLE") {
                     bulletColor = '#ffdd59';
-                    // Bala central, izquierda (-0.2 rads) y derecha (+0.2 rads)
                     this.bullets.push(new Bullet(Math.random().toString(), ownerId, x, y, angle, bulletColor));
                     this.bullets.push(new Bullet(Math.random().toString(), ownerId, x, y, angle - 0.2, bulletColor));
                     this.bullets.push(new Bullet(Math.random().toString(), ownerId, x, y, angle + 0.2, bulletColor));
@@ -533,64 +521,88 @@
                 let chosenType = types[Math.floor(Math.random() * types.length)];
                 this.skills.push({
                     id: 'sk_' + Math.random().toString(36).substring(2,7),
-                    x: Math.random() * WORLD_SIZE,
-                    y: Math.random() * WORLD_SIZE,
-                    type: chosenType
+                    x: Math.random() * WORLD_SIZE, y: Math.random() * WORLD_SIZE, type: chosenType
                 });
             }
 
-            // Lógica interna para mapear Toques de dedos en Pantalla
+            // GESTIÓN TÁCTIL: JOYSTICK, DISPARO Y PINCH-TO-ZOOM (GESTOR DE DEDOS)
             setupTouchControls() {
                 canvas.addEventListener('touchstart', (e) => {
                     if (controlMode !== "mobile") return;
+
+                    // Si hay 2 dedos en la pantalla, inicializamos el gesto de Pinch (Acelerar/Alejar zoom)
+                    if (e.targetTouches.length === 2) {
+                        camera.isPinching = true;
+                        let dx = e.targetTouches[0].clientX - e.targetTouches[1].clientX;
+                        let dy = e.targetTouches[0].clientY - e.targetTouches[1].clientY;
+                        camera.initialPinchDist = Math.sqrt(dx*dx + dy*dy);
+                        return; 
+                    }
+
                     for (let touch of e.changedTouches) {
-                        // El lado izquierdo de la pantalla activa el joystick
+                        // El lado izquierdo maneja el movimiento (Joystick)
                         if (!joystick.active && touch.clientX < window.innerWidth / 2) {
                             joystick.active = true;
                             joystick.pointerId = touch.identifier;
-                            joystick.startX = touch.clientX;
-                            joystick.startY = touch.clientY;
-                            joystick.currentX = touch.clientX;
-                            joystick.currentY = touch.clientY;
-                            joystick.moveX = 0;
-                            joystick.moveY = 0;
-                        } else if (touch.clientX >= window.innerWidth / 2) {
-                            // Cualquier toque en el lado derecho dispara el arma
+                            joystick.startX = touch.clientX; joystick.startY = touch.clientY;
+                            joystick.currentX = touch.clientX; joystick.currentY = touch.clientY;
+                            joystick.moveX = 0; joystick.moveY = 0;
+                        } else if (touch.clientX >= window.innerWidth / 2 && !camera.isPinching) {
+                            // El lado derecho procesa disparos (Siempre que no estemos haciendo Zoom)
                             this.fireWeapon();
                         }
                     }
                 }, { passive: true });
 
                 canvas.addEventListener('touchmove', (e) => {
-                    if (controlMode !== "mobile" || !joystick.active) return;
-                    for (let touch of e.changedTouches) {
-                        if (touch.identifier === joystick.pointerId) {
-                            joystick.currentX = touch.clientX;
-                            joystick.currentY = touch.clientY;
+                    if (controlMode !== "mobile") return;
 
-                            let dx = joystick.currentX - joystick.startX;
-                            let dy = joystick.currentY - joystick.startY;
-                            let dist = Math.sqrt(dx*dx + dy*dy);
+                    // Procesamiento del gesto Pinch con dos dedos
+                    if (e.targetTouches.length === 2 && camera.isPinching) {
+                        let dx = e.targetTouches[0].clientX - e.targetTouches[1].clientX;
+                        let dy = e.targetTouches[0].clientY - e.targetTouches[1].clientY;
+                        let currentDist = Math.sqrt(dx*dx + dy*dy);
+                        
+                        // Factor de escala basado en la separación de los dedos
+                        let factor = currentDist / camera.initialPinchDist;
+                        camera.targetZoom = camera.zoom * factor;
+                        camera.targetZoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.targetZoom));
+                        
+                        // Reseteamos el punto inicial para transiciones suaves
+                        camera.initialPinchDist = currentDist;
+                        return;
+                    }
 
-                            if (dist > joystick.maxRadius) {
-                                dx = (dx / dist) * joystick.maxRadius;
-                                dy = (dy / dist) * joystick.maxRadius;
+                    // Procesamiento del movimiento del Joystick
+                    if (joystick.active) {
+                        for (let touch of e.changedTouches) {
+                            if (touch.identifier === joystick.pointerId) {
+                                joystick.currentX = touch.clientX; joystick.currentY = touch.clientY;
+
+                                let dx = joystick.currentX - joystick.startX;
+                                let dy = joystick.currentY - joystick.startY;
+                                let dist = Math.sqrt(dx*dx + dy*dy);
+
+                                if (dist > joystick.maxRadius) {
+                                    dx = (dx / dist) * joystick.maxRadius;
+                                    dy = (dy / dist) * joystick.maxRadius;
+                                }
+                                joystick.moveX = dx / joystick.maxRadius;
+                                joystick.moveY = dy / joystick.maxRadius;
                             }
-
-                            joystick.moveX = dx / joystick.maxRadius;
-                            joystick.moveY = dy / joystick.maxRadius;
                         }
                     }
                 }, { passive: true });
 
                 const endTouch = (e) => {
-                    if (controlMode !== "mobile" || !joystick.active) return;
+                    if (e.targetTouches.length < 2) {
+                        camera.isPinching = false;
+                    }
+                    if (!joystick.active) return;
                     for (let touch of e.changedTouches) {
                         if (touch.identifier === joystick.pointerId) {
-                            joystick.active = false;
-                            joystick.pointerId = null;
-                            joystick.moveX = 0;
-                            joystick.moveY = 0;
+                            joystick.active = false; joystick.pointerId = null;
+                            joystick.moveX = 0; joystick.moveY = 0;
                         }
                     }
                 };
@@ -608,16 +620,17 @@
             }
 
             update(dt) {
+                // Suavizado e interpolación de la cámara (Zoom fluido)
+                camera.zoom += (camera.targetZoom - camera.zoom) * 0.1;
+
                 Object.values(this.players).forEach(p => p.update(dt, this.keys, this.mouseAngle));
                 FX.update(dt);
                 if (this.shakeIntensity > 0) this.shakeIntensity *= 0.9;
 
-                // Actualizar interfaz HUD de la Habilidad local
                 document.getElementById('skillVal').innerText = this.localPlayer.activeSkill.replace('_',' ');
                 document.getElementById('skillTime').innerText = Math.ceil(this.localPlayer.skillTimeLeft);
 
                 if (net.isHost) {
-                    // Control de balas e impactos (Host)
                     for (let i = this.bullets.length - 1; i >= 0; i--) {
                         let b = this.bullets[i]; b.update(dt);
                         let hit = false;
@@ -630,7 +643,6 @@
                                     if(this.players[b.ownerId]) this.players[b.ownerId].score += 10;
                                     p.x = Math.random()*WORLD_SIZE; p.y = Math.random()*WORLD_SIZE; p.vx = 0; p.vy = 0;
                                     
-                                    // Perder habilidades al morir
                                     p.activeSkill = "NINGUNA"; 
                                     if (p.id === this.localId) this.localPlayer.skillTimeLeft = 0;
                                     else net.broadcast({ type: 'grant_skill', targetId: p.id, skill: "NINGUNA" });
@@ -645,7 +657,6 @@
                         if (hit || b.life <= 0) this.bullets.splice(i, 1);
                     }
 
-                    // Recolección de Gemas básicas
                     for (let i = this.gems.length - 1; i >= 0; i--) {
                         let g = this.gems[i];
                         Object.values(this.players).forEach(p => {
@@ -657,24 +668,17 @@
                         });
                     }
 
-                    // Recolección y Procesamiento de Habilidades por colisión (Host)
                     for (let i = this.skills.length - 1; i >= 0; i--) {
                         let sk = this.skills[i];
                         Object.values(this.players).forEach(p => {
                             let dx = p.x - sk.x, dy = p.y - sk.y;
                             if (Math.sqrt(dx*dx + dy*dy) < p.radius + 12) {
-                                // Ejecutar activación
                                 if (p.id === this.localId) {
-                                    this.localPlayer.activeSkill = sk.type;
-                                    this.localPlayer.skillTimeLeft = 5;
+                                    this.localPlayer.activeSkill = sk.type; this.localPlayer.skillTimeLeft = 5;
                                 } else {
                                     net.broadcast({ type: 'grant_skill', targetId: p.id, skill: sk.type });
                                 }
-                                
-                                FX.spawn(sk.x, sk.y, '#ffdd59', 3, 15);
-                                this.skills.splice(i, 1);
-                                
-                                // Respawn de otra habilidad tras 4 segundos en otro punto
+                                FX.spawn(sk.x, sk.y, '#ffdd59', 3, 15); this.skills.splice(i, 1);
                                 setTimeout(() => { if(net.isHost) this.spawnRandomSkillOnMap(); }, 4000);
                             }
                         });
@@ -683,20 +687,12 @@
                     this.netTimer += dt * 1000;
                     if (this.netTimer >= 45) { net.forceSnapshot(); this.netTimer = 0; }
                 } else {
-                    // Sincronización regular del Cliente
                     this.netTimer += dt * 1000;
                     if (this.netTimer >= 45) {
-                        net.sendToHost({ 
-                            type: 'sync', 
-                            x: this.localPlayer.x, 
-                            y: this.localPlayer.y, 
-                            angle: this.localPlayer.angle,
-                            activeSkill: this.localPlayer.activeSkill 
-                        });
+                        net.sendToHost({ type: 'sync', x: this.localPlayer.x, y: this.localPlayer.y, angle: this.localPlayer.angle, activeSkill: this.localPlayer.activeSkill });
                         this.netTimer = 0;
                     }
 
-                    // Cliente chequea colisión predictiva con Habilidades para avisar al host
                     this.skills.forEach(sk => {
                         let dx = this.localPlayer.x - sk.x, dy = this.localPlayer.y - sk.y;
                         if (Math.sqrt(dx*dx + dy*dy) < this.localPlayer.radius + 12) {
@@ -720,77 +716,75 @@
 
             render() {
                 ctx.fillStyle = '#03030c'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                let cx = this.localPlayer.x - canvas.width / 2;
-                let cy = this.localPlayer.y - canvas.height / 2;
+                
+                // Centro de la Cámara centrado en el jugador local
+                let cx = this.localPlayer.x;
+                let cy = this.localPlayer.y;
 
                 ctx.save();
+                
+                // Efecto de sacudida (Screen Shake)
                 if (this.shakeIntensity > 0.2) ctx.translate((Math.random()-0.5)*this.shakeIntensity, (Math.random()-0.5)*this.shakeIntensity);
 
-                // Estrellas
+                // --- MATRIZ DE TRANSFORMACIÓN DE LA CÁMARA (ZOOM DINÁMICO) ---
+                // Movemos el origen al centro del Canvas, escalamos el mundo y re-centramos en la nave
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.scale(camera.zoom, camera.zoom);
+                ctx.translate(-cx, -cy);
+
+                // Estrellas de fondo (corregimos el renderizado al espacio de la cámara)
                 ctx.fillStyle = '#fff';
-                starsBackground.forEach(s => {
-                    let sx = (s.x - cx * s.depth) % canvas.width; let sy = (s.y - cy * s.depth) % canvas.height;
-                    if (sx < 0) sx += canvas.width; if (sy < 0) sy += canvas.height;
+                starsBackground.forEach((s, idx) => {
+                    // Distribución ficticia usando el índice para fijar posiciones relativas al espacio local
+                    let sx = (idx * 37 + cx * (1 - s.depth)) % WORLD_SIZE;
+                    let sy = (idx * 59 + cy * (1 - s.depth)) % WORLD_SIZE;
+                    if (sx < 0) sx += WORLD_SIZE; if (sy < 0) sy += WORLD_SIZE;
                     ctx.fillRect(sx, sy, s.size, s.size);
                 });
 
                 // Límites del Mundo
-                ctx.strokeStyle = '#5758bb'; ctx.lineWidth = 2; ctx.strokeRect(-cx, -cy, WORLD_SIZE, WORLD_SIZE);
+                ctx.strokeStyle = '#5758bb'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, WORLD_SIZE, WORLD_SIZE);
 
                 // Dibujar Gemas
                 this.gems.forEach(g => {
-                    ctx.fillStyle = '#00d2d3'; ctx.fillRect(g.x - cx - 4, g.y - cy - 4, 8, 8);
+                    ctx.fillStyle = '#00d2d3'; ctx.fillRect(g.x - 4, g.y - 4, 8, 8);
                 });
 
-                // Dibujar Contenedores de Habilidades Aleatorias
+                // Dibujar Contenedores de Habilidades
                 this.skills.forEach(sk => {
                     ctx.save();
                     ctx.fillStyle = sk.type === "SUPER_VELOCIDAD" ? "#ff9f43" : "#ffdd59";
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = ctx.fillStyle;
-                    // Dibujar una estrella/rombo rotatorio para las habilidades
+                    ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
                     ctx.beginPath();
-                    let sx = sk.x - cx; let sy = sk.y - cy;
-                    ctx.moveTo(sx, sy - 12);
-                    ctx.lineTo(sx + 12, sy);
-                    ctx.lineTo(sx, sy + 12);
-                    ctx.lineTo(sx - 12, sy);
-                    ctx.closePath();
-                    ctx.fill();
+                    ctx.moveTo(sk.x, sk.y - 12); ctx.lineTo(sk.x + 12, sk.y); ctx.lineTo(sk.x, sk.y + 12); ctx.lineTo(sk.x - 12, sk.y);
+                    ctx.closePath(); ctx.fill();
                     ctx.restore();
                 });
 
                 // Balas
                 this.bullets.forEach(b => {
-                    ctx.fillStyle = b.color; ctx.fillRect(b.x - cx - 2, b.y - cy - 2, 5, 5);
+                    ctx.fillStyle = b.color; ctx.fillRect(b.x - 2, b.y - 2, 5, 5);
                 });
 
                 // Jugadores y efectos
-                Object.values(this.players).forEach(p => p.draw(ctx, cx, cy));
-                FX.draw(ctx, cx, cy);
-                ctx.restore();
+                Object.values(this.players).forEach(p => p.draw(ctx, 0, 0));
+                FX.draw(ctx, 0, 0);
+                
+                ctx.restore(); // Restauramos para pintar la interfaz HUD de forma estática arriba del juego
 
-                // DIBUJAR JOYSTICK VIRTUAL EN PANTALLA (Solo si está activo)
+                // DIBUJAR INTERFAZ DE JOYSTICK (Estática, no le afecta el zoom)
                 if (controlMode === "mobile" && joystick.active) {
                     ctx.save();
-                    // Anillo exterior fijo
                     ctx.beginPath();
                     ctx.arc(joystick.startX, joystick.startY, joystick.maxRadius, 0, Math.PI * 2);
-                    ctx.strokeStyle = "rgba(0, 210, 211, 0.4)";
-                    ctx.lineWidth = 4;
-                    ctx.stroke();
-                    ctx.fillStyle = "rgba(8, 8, 24, 0.2)";
-                    ctx.fill();
+                    ctx.strokeStyle = "rgba(0, 210, 211, 0.4)"; ctx.lineWidth = 4; ctx.stroke();
+                    ctx.fillStyle = "rgba(8, 8, 24, 0.2)"; ctx.fill();
 
-                    // Botón interior móvil
                     ctx.beginPath();
                     let stickX = joystick.startX + joystick.moveX * joystick.maxRadius;
                     let stickY = joystick.startY + joystick.moveY * joystick.maxRadius;
                     ctx.arc(stickX, stickY, 25, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(0, 210, 211, 0.8)";
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = "#00d2d3";
-                    ctx.fill();
+                    ctx.fillStyle = "rgba(0, 210, 211, 0.8)"; ctx.shadowBlur = 10; ctx.shadowColor = "#00d2d3"; ctx.fill();
                     ctx.restore();
                 }
             }
@@ -809,32 +803,37 @@
                     serverListContainer.innerHTML = '<div class="no-servers">No hay salas públicas. ¡Crea una!</div>';
                     return;
                 }
-
                 serverListContainer.innerHTML = Object.values(data).map(room => `
                     <div class="server-item">
                         <span>🚀 SERVIDOR DE: <b>${room.hostName}</b></span>
                         <button class="join-item-btn" data-id="${room.id}">UNIRSE</button>
                     </div>
                 `).join('');
-
                 document.querySelectorAll('.join-item-btn').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        directConnect(btn.getAttribute('data-id'));
-                    });
+                    btn.addEventListener('click', () => { directConnect(btn.getAttribute('data-id')); });
                 });
             }
         });
 
         function directConnect(id) {
             document.getElementById('statusMsg').innerText = "Estableciendo puente WebRTC...";
-            net.initClient(id, () => {
-                game.start(document.getElementById('username').value, activeColor);
-            });
+            net.initClient(id, () => { game.start(document.getElementById('username').value, activeColor); });
         }
 
         // ==========================================
-        // INTERFAZ DE USUARIO (Mapeo de Botones)
+        // GESTIÓN INTERFAZ LOBBY Y PANTALLA COMPLETA
         // ==========================================
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log(`Error al activar Fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
         document.getElementById('controlPC').addEventListener('click', () => {
             controlMode = "pc";
             document.getElementById('controlPC').classList.add('selected');
@@ -848,44 +847,35 @@
         });
 
         document.getElementById('tabBtnHost').addEventListener('click', () => {
-            document.getElementById('joinTab').classList.remove('active');
-            document.getElementById('tabBtnJoin').classList.remove('active');
-            document.getElementById('hostTab').classList.add('active');
-            document.getElementById('tabBtnHost').classList.add('active');
+            document.getElementById('joinTab').classList.remove('active'); document.getElementById('tabBtnJoin').classList.remove('active');
+            document.getElementById('hostTab').classList.add('active'); document.getElementById('tabBtnHost').classList.add('active');
         });
 
         document.getElementById('tabBtnJoin').addEventListener('click', () => {
-            document.getElementById('hostTab').classList.remove('active');
-            document.getElementById('tabBtnHost').classList.remove('active');
-            document.getElementById('joinTab').classList.add('active');
-            document.getElementById('tabBtnJoin').classList.add('active');
+            document.getElementById('hostTab').classList.remove('active'); document.getElementById('tabBtnHost').classList.remove('active');
+            document.getElementById('joinTab').classList.add('active'); document.getElementById('tabBtnJoin').classList.add('active');
         });
 
         document.getElementById('typePublic').addEventListener('click', () => {
             isPublicRoom = true;
-            document.getElementById('typePublic').classList.add('selected');
-            document.getElementById('typePrivate').classList.remove('selected');
+            document.getElementById('typePublic').classList.add('selected'); document.getElementById('typePrivate').classList.remove('selected');
         });
 
         document.getElementById('typePrivate').addEventListener('click', () => {
             isPublicRoom = false;
-            document.getElementById('typePrivate').classList.add('selected');
-            document.getElementById('typePublic').classList.remove('selected');
+            document.getElementById('typePrivate').classList.add('selected'); document.getElementById('typePublic').classList.remove('selected');
         });
 
         document.querySelectorAll('.color-opt').forEach(opt => {
             opt.addEventListener('click', () => {
                 document.querySelectorAll('.color-opt').forEach(o => o.classList.remove('selected'));
-                opt.classList.add('selected'); 
-                activeColor = opt.getAttribute('data-color');
+                opt.classList.add('selected'); activeColor = opt.getAttribute('data-color');
             });
         });
 
         document.getElementById('btnHost').addEventListener('click', () => {
             document.getElementById('statusMsg').innerText = "Abriendo hangar seguro...";
-            net.initHost((id) => {
-                game.start(document.getElementById('username').value, activeColor);
-            });
+            net.initHost((id) => { game.start(document.getElementById('username').value, activeColor); });
         });
 
         document.getElementById('btnJoin').addEventListener('click', () => {
