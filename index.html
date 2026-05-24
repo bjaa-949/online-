@@ -74,26 +74,32 @@
         .room-panel { position: absolute; bottom: 25px; left: 25px; background: rgba(6, 6, 18, 0.85); padding: 12px; border-radius: 8px; border: 1px solid #5758bb; display: none; font-size: 12px; z-index: 5; }
         .copy-badge { background: #5758bb; padding: 2px 5px; border-radius: 4px; font-size: 10px; cursor: pointer; margin-left: 5px; }
 
-        /* Botón de Pantalla Completa */
-        #fullscreenBtn {
-            position: absolute; top: 25px; right: 25px; width: 40px; height: 40px;
-            background: rgba(6, 6, 18, 0.85); border: 1px solid #5758bb; border-radius: 8px;
-            z-index: 100; cursor: pointer; display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 0 10px rgba(87, 88, 187, 0.3); transition: 0.2s;
+        /* Contenedor de Botones de Control (Esquina Superior Derecha) */
+        .control-panel-right {
+            position: absolute; top: 25px; right: 25px; display: flex; flex-direction: column; gap: 10px; z-index: 100;
         }
-        #fullscreenBtn:active { transform: scale(0.9); }
-        #fullscreenBtn svg { width: 20px; height: 20px; fill: #00d2d3; }
+        .ui-round-btn {
+            width: 40px; height: 40px; background: rgba(6, 6, 18, 0.85); border: 1px solid #5758bb;
+            border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 10px rgba(87, 88, 187, 0.3); transition: 0.1s; color: #00d2d3; font-weight: bold; font-size: 18px;
+        }
+        .ui-round-btn:active { transform: scale(0.9); background: rgba(87, 88, 187, 0.2); }
+        .ui-round-btn svg { width: 20px; height: 20px; fill: #00d2d3; }
     </style>
 </head>
 <body>
 
     <canvas id="gameCanvas"></canvas>
 
-    <!-- Botón de Pantalla Completa (Esquina Superior Derecha) -->
-    <div id="fullscreenBtn" title="Pantalla Completa">
-        <svg viewBox="0 0 24 24">
-            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-        </svg>
+    <!-- Panel de Botones en la Esquina Superior Derecha -->
+    <div class="control-panel-right">
+        <button id="fullscreenBtn" class="ui-round-btn" title="Pantalla Completa">
+            <svg viewBox="0 0 24 24">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+        </button>
+        <button id="zoomInBtn" class="ui-round-btn" title="Acercar Cámara">+</button>
+        <button id="zoomOutBtn" class="ui-round-btn" title="Alejar Cámara">−</button>
     </div>
 
     <div id="lobbyUI">
@@ -196,9 +202,7 @@
             zoom: 1.0,
             minZoom: 0.5,
             maxZoom: 1.8,
-            targetZoom: 1.0,
-            initialPinchDist: 0,
-            isPinching: false
+            targetZoom: 1.0
         };
 
         function generateStars() {
@@ -319,7 +323,6 @@
                 ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-14, -11); ctx.lineTo(-7, 0); ctx.lineTo(-14, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
                 ctx.restore();
                 
-                // Texto escalable (evitamos que se rompa con zooms muy bajos)
                 ctx.fillStyle = "#fff"; ctx.font = "11px monospace"; ctx.textAlign = "center";
                 let infoString = this.name.toUpperCase();
                 if (this.activeSkill !== "NINGUNA") infoString += ` [${this.activeSkill.replace('_',' ')}]`;
@@ -450,7 +453,6 @@
                 
                 window.addEventListener('mousemove', (e) => {
                     if (controlMode !== "pc") return;
-                    // Adaptamos el cálculo del ángulo del ratón al Zoom actual de la cámara
                     let dx = (e.clientX - canvas.width / 2) / camera.zoom;
                     let dy = (e.clientY - canvas.height / 2) / camera.zoom;
                     this.mouseAngle = Math.atan2(dy, dx);
@@ -458,12 +460,12 @@
                 
                 window.addEventListener('click', (e) => {
                     if (document.getElementById('lobbyUI').style.display !== 'none') return;
-                    if (e.target.closest('#fullscreenBtn')) return; // Evitar disparar al tocar el botón full screen
+                    // Ignorar clics en cualquier botón del panel UI derecho
+                    if (e.target.closest('.control-panel-right')) return; 
                     if (controlMode === "mobile") return; 
                     this.fireWeapon();
                 });
 
-                // Soporte para Zoom con Rueda del Ratón (PC)
                 window.addEventListener('wheel', (e) => {
                     if (document.getElementById('lobbyUI').style.display !== 'none') return;
                     if (e.deltaY < 0) camera.targetZoom += 0.08;
@@ -525,79 +527,52 @@
                 });
             }
 
-            // GESTIÓN TÁCTIL: JOYSTICK, DISPARO Y PINCH-TO-ZOOM (GESTOR DE DEDOS)
+            // CONTROLES DE TOQUE OPTIMIZADOS PARA EVITAR INTERRUPCIONES CON BOTONES
             setupTouchControls() {
                 canvas.addEventListener('touchstart', (e) => {
                     if (controlMode !== "mobile") return;
 
-                    // Si hay 2 dedos en la pantalla, inicializamos el gesto de Pinch (Acelerar/Alejar zoom)
-                    if (e.targetTouches.length === 2) {
-                        camera.isPinching = true;
-                        let dx = e.targetTouches[0].clientX - e.targetTouches[1].clientX;
-                        let dy = e.targetTouches[0].clientY - e.targetTouches[1].clientY;
-                        camera.initialPinchDist = Math.sqrt(dx*dx + dy*dy);
-                        return; 
-                    }
-
                     for (let touch of e.changedTouches) {
-                        // El lado izquierdo maneja el movimiento (Joystick)
+                        // Impedir disparar si el toque está interactuando con los botones UI de la derecha
+                        let element = document.elementFromPoint(touch.clientX, touch.clientY);
+                        if (element && element.closest('.control-panel-right')) return;
+
+                        // Lado izquierdo: Joystick
                         if (!joystick.active && touch.clientX < window.innerWidth / 2) {
                             joystick.active = true;
                             joystick.pointerId = touch.identifier;
                             joystick.startX = touch.clientX; joystick.startY = touch.clientY;
                             joystick.currentX = touch.clientX; joystick.currentY = touch.clientY;
                             joystick.moveX = 0; joystick.moveY = 0;
-                        } else if (touch.clientX >= window.innerWidth / 2 && !camera.isPinching) {
-                            // El lado derecho procesa disparos (Siempre que no estemos haciendo Zoom)
+                        } else if (touch.clientX >= window.innerWidth / 2) {
+                            // Lado derecho libre: Disparo directo
                             this.fireWeapon();
                         }
                     }
                 }, { passive: true });
 
                 canvas.addEventListener('touchmove', (e) => {
-                    if (controlMode !== "mobile") return;
+                    if (controlMode !== "mobile" || !joystick.active) return;
+                    
+                    for (let touch of e.changedTouches) {
+                        if (touch.identifier === joystick.pointerId) {
+                            joystick.currentX = touch.clientX; joystick.currentY = touch.clientY;
 
-                    // Procesamiento del gesto Pinch con dos dedos
-                    if (e.targetTouches.length === 2 && camera.isPinching) {
-                        let dx = e.targetTouches[0].clientX - e.targetTouches[1].clientX;
-                        let dy = e.targetTouches[0].clientY - e.targetTouches[1].clientY;
-                        let currentDist = Math.sqrt(dx*dx + dy*dy);
-                        
-                        // Factor de escala basado en la separación de los dedos
-                        let factor = currentDist / camera.initialPinchDist;
-                        camera.targetZoom = camera.zoom * factor;
-                        camera.targetZoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, camera.targetZoom));
-                        
-                        // Reseteamos el punto inicial para transiciones suaves
-                        camera.initialPinchDist = currentDist;
-                        return;
-                    }
+                            let dx = joystick.currentX - joystick.startX;
+                            let dy = joystick.currentY - joystick.startY;
+                            let dist = Math.sqrt(dx*dx + dy*dy);
 
-                    // Procesamiento del movimiento del Joystick
-                    if (joystick.active) {
-                        for (let touch of e.changedTouches) {
-                            if (touch.identifier === joystick.pointerId) {
-                                joystick.currentX = touch.clientX; joystick.currentY = touch.clientY;
-
-                                let dx = joystick.currentX - joystick.startX;
-                                let dy = joystick.currentY - joystick.startY;
-                                let dist = Math.sqrt(dx*dx + dy*dy);
-
-                                if (dist > joystick.maxRadius) {
-                                    dx = (dx / dist) * joystick.maxRadius;
-                                    dy = (dy / dist) * joystick.maxRadius;
-                                }
-                                joystick.moveX = dx / joystick.maxRadius;
-                                joystick.moveY = dy / joystick.maxRadius;
+                            if (dist > joystick.maxRadius) {
+                                dx = (dx / dist) * joystick.maxRadius;
+                                dy = (dy / dist) * joystick.maxRadius;
                             }
+                            joystick.moveX = dx / joystick.maxRadius;
+                            joystick.moveY = dy / joystick.maxRadius;
                         }
                     }
                 }, { passive: true });
 
                 const endTouch = (e) => {
-                    if (e.targetTouches.length < 2) {
-                        camera.isPinching = false;
-                    }
                     if (!joystick.active) return;
                     for (let touch of e.changedTouches) {
                         if (touch.identifier === joystick.pointerId) {
@@ -620,7 +595,7 @@
             }
 
             update(dt) {
-                // Suavizado e interpolación de la cámara (Zoom fluido)
+                // Suavizado del Zoom de la cámara
                 camera.zoom += (camera.targetZoom - camera.zoom) * 0.1;
 
                 Object.values(this.players).forEach(p => p.update(dt, this.keys, this.mouseAngle));
@@ -717,25 +692,20 @@
             render() {
                 ctx.fillStyle = '#03030c'; ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
-                // Centro de la Cámara centrado en el jugador local
                 let cx = this.localPlayer.x;
                 let cy = this.localPlayer.y;
 
                 ctx.save();
-                
-                // Efecto de sacudida (Screen Shake)
                 if (this.shakeIntensity > 0.2) ctx.translate((Math.random()-0.5)*this.shakeIntensity, (Math.random()-0.5)*this.shakeIntensity);
 
-                // --- MATRIZ DE TRANSFORMACIÓN DE LA CÁMARA (ZOOM DINÁMICO) ---
-                // Movemos el origen al centro del Canvas, escalamos el mundo y re-centramos en la nave
+                // Transformación de la cámara (Zoom Dinámico)
                 ctx.translate(canvas.width / 2, canvas.height / 2);
                 ctx.scale(camera.zoom, camera.zoom);
                 ctx.translate(-cx, -cy);
 
-                // Estrellas de fondo (corregimos el renderizado al espacio de la cámara)
+                // Estrellas
                 ctx.fillStyle = '#fff';
                 starsBackground.forEach((s, idx) => {
-                    // Distribución ficticia usando el índice para fijar posiciones relativas al espacio local
                     let sx = (idx * 37 + cx * (1 - s.depth)) % WORLD_SIZE;
                     let sy = (idx * 59 + cy * (1 - s.depth)) % WORLD_SIZE;
                     if (sx < 0) sx += WORLD_SIZE; if (sy < 0) sy += WORLD_SIZE;
@@ -745,12 +715,12 @@
                 // Límites del Mundo
                 ctx.strokeStyle = '#5758bb'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, WORLD_SIZE, WORLD_SIZE);
 
-                // Dibujar Gemas
+                // Gemas
                 this.gems.forEach(g => {
                     ctx.fillStyle = '#00d2d3'; ctx.fillRect(g.x - 4, g.y - 4, 8, 8);
                 });
 
-                // Dibujar Contenedores de Habilidades
+                // Habilidades
                 this.skills.forEach(sk => {
                     ctx.save();
                     ctx.fillStyle = sk.type === "SUPER_VELOCIDAD" ? "#ff9f43" : "#ffdd59";
@@ -766,13 +736,13 @@
                     ctx.fillStyle = b.color; ctx.fillRect(b.x - 2, b.y - 2, 5, 5);
                 });
 
-                // Jugadores y efectos
+                // Jugadores
                 Object.values(this.players).forEach(p => p.draw(ctx, 0, 0));
                 FX.draw(ctx, 0, 0);
                 
-                ctx.restore(); // Restauramos para pintar la interfaz HUD de forma estática arriba del juego
+                ctx.restore(); 
 
-                // DIBUJAR INTERFAZ DE JOYSTICK (Estática, no le afecta el zoom)
+                // Dibujar Joystick (Capa estática UI)
                 if (controlMode === "mobile" && joystick.active) {
                     ctx.save();
                     ctx.beginPath();
@@ -821,19 +791,29 @@
         }
 
         // ==========================================
-        // GESTIÓN INTERFAZ LOBBY Y PANTALLA COMPLETA
+        // GESTIÓN DEL PANEL DE CONTROL SUPERIOR DERECHO
         // ==========================================
-        const fullscreenBtn = document.getElementById('fullscreenBtn');
-        fullscreenBtn.addEventListener('click', () => {
+        document.getElementById('fullscreenBtn').addEventListener('click', () => {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen().catch(err => {
-                    console.log(`Error al activar Fullscreen: ${err.message}`);
+                    console.log(`Error Fullscreen: ${err.message}`);
                 });
             } else {
                 document.exitFullscreen();
             }
         });
 
+        // Botón Acercar (+)
+        document.getElementById('zoomInBtn').addEventListener('pointerdown', () => {
+            camera.targetZoom = Math.min(camera.maxZoom, camera.targetZoom + 0.15);
+        });
+
+        // Botón Alejar (-)
+        document.getElementById('zoomOutBtn').addEventListener('pointerdown', () => {
+            camera.targetZoom = Math.max(camera.minZoom, camera.targetZoom - 0.15);
+        });
+
+        // Eventos del Lobby
         document.getElementById('controlPC').addEventListener('click', () => {
             controlMode = "pc";
             document.getElementById('controlPC').classList.add('selected');
